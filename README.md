@@ -1,4 +1,23 @@
-# temperature-and-herbivory
+# Interactive effects of temperature, aridity, and plant stoichiometry on insect herbivory: past and present #
+
+*Team members:* Anshuman Swain<sup>1,2,3\*</sup>,Lauren E Azevedo-Schmidt<sup>4,5\*</sup>,S A Maccracken<sup>6</sup>, Ellen D Currano<sup>7,8</sup>, Emily K Meineke<sup>4</sup>, Naomi E Pierce<sup>1,2</sup>, William F Fagan<sup>9</sup>,Conrad C Labandeira<sup>3,10,11</sup>
+
+<sup>1</sup>Department of Organismic and Evolutionary Biology, Harvard University, Cambridge, Massachusetts, 02138, U.S.A.
+<sup>2</sup>Museum of Comparative Zoology, Harvard University, Cambridge, Massachusetts, 02138, U.S.A.
+<sup>3</sup>Department of Paleobiology, National Museum of Natural History, Washington, DC, 20013, U.S.A.
+<sup>4</sup>Department of Entomology and Nematology, University of California, Davis, California, 95616, U.S.A
+<sup>5</sup>Climate Change Institute, University of Maine, Orono, Maine, 04469, U.S.A
+<sup>6</sup>Department of Earth Sciences, Denver Museum of Nature & Science, Denver, Colorado, 80205, U.S.A.
+<sup>7</sup>Department of Botany, University of Wyoming, Laramie, Wyoming, 82071, U.S.A.
+<sup>8</sup>Department of Geology & Geophysics, University of Wyoming, Laramie, Wyoming 82071, U.S.A.
+<sup>9</sup>Department of Biology, University of Maryland, College Park, Maryland, 20742, U.S.A.
+<sup>10</sup>Department of Entomology, University of Maryland, College Park, Maryland, 20742, U.S.A.
+<sup>11</sup>College of Life Sciences and Academy for Multidisciplinary Studies, Capital Normal University, Beijing 100048, P.R.C.
+
+*equal contributions
+
+
+
 Exploring how herbivory is impacted by changes in mean annual temperature, aridity and stoichiometry
 
 The supplementary files consist of the following major parts:

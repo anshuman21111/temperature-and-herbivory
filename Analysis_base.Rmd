@@ -1,0 +1,1213 @@
+---
+title: "PETM"
+output: html_document
+date: "2023-05-15"
+---
+
+```{r}
+#filenets_PETM = list.files(path="Localities/PETM", pattern="*.csv", full.names=TRUE)
+#filenets2_PETM = list.files(path="Localities/PETM", pattern="*.csv", full.names=FALSE)
+
+#Listing and importing all Cenozoic files 
+filenets = list.files(path="Localities/all", pattern="*.csv", full.names=TRUE)
+filenets2 = list.files(path="Localities/all", pattern="*.csv", full.names=FALSE) #obtaining site name from file name
+lengthi=NULL
+for (i in 1:length(filenets)){
+  nam=paste(filenets[i])
+  netcurr=read.csv(nam, header=T)
+  colnames(netcurr)[1]="ID"
+  nam2=strsplit(filenets2[i],".csv")[[1]]
+  bstill=c(nam2,nrow(netcurr))
+  lengthi=rbind(lengthi,bstill)
+}
+#calculating sample size
+rownames(lengthi)=NULL
+leng2=lengthi
+colnames(leng2)=c("web", "samples")
+leng2=as.data.frame(leng2)
+leng2$samples=as.numeric(leng2$samples)
+leng3=leng2[order(leng2$samples),]
+gret600=which(leng2$samples>600)
+
+filenets_600=filenets[gret600]
+filenets2_600=filenets2[gret600]
+```
+
+```{r}
+#Calculation of herbivory metrics from raw data
+#Data input matrix: presence-absence of each DT (columns) on each leaf at a site (rows)
+
+library(vegan)
+mask <- read.csv("base_data/mask2.csv", header=T) #Read mask- this file defines each DT- herbivory, specialized, gall, mine
+ffg_def <- read.csv("base_data/ffgdef2.csv", header=T)$x #file defining FFGs: Boring, Fungal, Seed Predation, Incertae, Oviposition =0, Galling=3, Hole Feeding=4, Mining =5, Margin Feeding =6,  Piercing and Sucking=7, Skeletonization=1, Surface feeding =2,
+
+```
+
+```{r}
+library(vegan)
+#without resampling
+#define storage frames for FFG composition and numbers
+ffg_comp <- matrix(ncol = 10, nrow=length(filenets), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums <-matrix(ncol = 13, nrow=length(filenets), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+filenames=filenets
+filenames_cl=filenets2
+for (i in 1:length(filenames)) {
+  nam=paste(filenames[i])
+  dataall=read.csv(nam, header=T)
+  datatable <- dataall[,2:ncol(dataall)]
+  species   <- as.factor(dataall[,1])
+  
+  #presence/absence of the ffg on the leaf and count of DTs in each FFG
+  ffg_data  <- matrix (ncol=max(ffg_def)+1, nrow=nrow(datatable), data=0)
+  ffg_count  <- matrix (ncol=max(ffg_def)+1, nrow=1, data=0)
+  DTpres=as.numeric(colSums(datatable)>0)
+  
+  for (j in 1:(max(ffg_def)+1)){
+    ffg_data[,j]<-as.numeric(as.logical(rowSums(datatable[,ffg_def==(j-1)])))
+    ffg_count[,j]<-sum(DTpres[ffg_def==(j-1)])
+  }
+  
+  ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(mask$Spec==T)]))))
+  ffg_count_spec=sum(DTpres[c(mask$Spec==T)])
+  
+  ##plants
+  shannon <- diversity(table(dataall$ID), index = "shannon")
+  PJ <- (shannon)/log(length(table(dataall$ID)))
+  
+  ffg_comp[i,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+  ffg_nums[i,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(dataall$ID))), shannon, PJ)
+  
+  
+  
+}
+
+ffg_comp=as.data.frame(ffg_comp)
+ffg_comp$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_nums=as.data.frame(ffg_nums)
+ffg_nums$site=as.character(strsplit(filenames_cl,".csv"))
+```
+
+```{r}
+library(Rfast)
+#with resampling for percentage and richness
+
+filenames=filenets_600
+filenames_cl=filenets2_600
+
+#define storage frames for FFG composition and numbers
+ffg_comp_mean <- matrix(ncol = 10, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_mean) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+#actually sd
+ffg_comp_var <- matrix(ncol = 10, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_var) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_mean <-matrix(ncol = 13, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_mean) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+ffg_nums_var <-matrix(ncol = 13, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_var) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+
+
+for (i in 1:length(filenames)) {
+  
+  nam=paste(filenames[i])
+  dataall=read.csv(nam, header=T)
+  datatable_all <- dataall[,2:ncol(dataall)]
+  species   <- as.factor(dataall[,1])
+  
+  minrow=600
+  samplings=500
+  
+  ffg_comp_store <- matrix(ncol = 10, nrow=samplings, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG for each site with samplings
+  colnames(ffg_comp_store) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+  ffg_nums_store <-matrix(ncol = 13, nrow=samplings, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG for each site with samplings
+colnames(ffg_nums_store) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+  
+  for (j in 1:samplings){
+        nums=sample(nrow(datatable_all), minrow, replace=F)
+        datatable=datatable_all[nums,]
+        datatable_ID=dataall[nums,]
+        #presence/absence of the ffg on the leaf and count of DTs in each FFG
+        ffg_data  <- matrix (ncol=max(ffg_def)+1, nrow=nrow(datatable), data=0)
+        ffg_count  <- matrix (ncol=max(ffg_def)+1, nrow=1, data=0)
+        DTpres=as.numeric(colSums(datatable)>0)
+  
+        for (k in 1:(max(ffg_def)+1)){
+          ffg_data[,k]<-as.numeric(as.logical(rowSums(datatable[,ffg_def==(k-1)])))
+          ffg_count[,k]<-sum(DTpres[ffg_def==(k-1)])
+        }
+  
+        ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(mask$Spec==T)]))))
+        ffg_count_spec=sum(DTpres[c(mask$Spec==T)])
+  
+        ##plants
+        shannon <- diversity(table(datatable_ID$ID), index = "shannon")
+        PJ <- (shannon)/log(length(table(datatable_ID$ID)))
+  
+        ffg_comp_store[j,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+        ffg_nums_store[j,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(datatable_ID$ID))), shannon, PJ)
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  ffg_comp_mean[i,] <- colMeans(as.data.frame(ffg_comp_store))
+  ffg_comp_var[i,]=sapply(as.data.frame(ffg_comp_store), sd)
+  ffg_nums_mean[i,]=colMeans(as.data.frame(ffg_nums_store))
+  ffg_nums_var[i,]=sapply(as.data.frame(ffg_nums_store), sd)
+  
+  
+  print(i)
+}
+
+ffg_comp_mean=as.data.frame(ffg_comp_mean)
+ffg_comp_mean$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_comp_var=as.data.frame(ffg_comp_var)
+ffg_comp_var$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_nums_mean=as.data.frame(ffg_nums_mean)
+ffg_nums_mean$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_nums_var=as.data.frame(ffg_nums_var)
+ffg_nums_var$site=as.character(strsplit(filenames_cl,".csv"))
+
+##just for safety - saving as another dataframe
+#DTrichness=ffg_nums_mean
+#DTpc=ffg_comp_mean
+```
+
+
+```{r}
+oldvals=read.csv("base_data/Herbivory_old_2.csv")
+oldvals2=oldvals[which(oldvals$X..Leaves.in.census>600),]
+oldvals2$site=as.character(strsplit(filenames_cl,".csv"))
+
+
+#allold=left_join(oldvals2, DTrichness, by="site")
+#allold=left_join(allold, DTpc, by="site")
+
+plot(allold$MAT..deg..C., allold$DTs_all, pch=16)
+summary(lm(as.numeric(allold$pc_)~as.numeric(allold$MAT..deg..C.)))
+
+testinghyp=allold[,c(1,3:13,40:63)]
+testinghyp$MAT..deg..C.=as.numeric(testinghyp$MAT..deg..C.)
+```
+
+```{r}
+#install.packages("devtools")
+#devtools::install_github("NightingaleHealth/ggforestplot")
+linmodels_all=as.data.frame(matrix(0,ncol=5, nrow=46))
+colnames(linmodels_all)=c("name","type","beta","se","pvalue")
+for (i in 14:36){
+  model=as.matrix(summary(lm(as.numeric(testinghyp[,i])~as.numeric(testinghyp$MAT..deg..C.)))$coefficients)
+  linmodels_all[i-13,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all[i-13, c(1:2)]=c(colnames(testinghyp)[i],"All")
+}
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 14:36){
+  model=as.matrix(summary(lm(as.numeric(testinghyp[PETMones,i])~as.numeric(testinghyp$MAT..deg..C.)[PETMones]))$coefficients)
+  linmodels_all[i+10,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all[i+10, c(1:2)]=c(colnames(testinghyp)[i],"PETM")
+}
+
+
+
+
+```
+
+```{r}
+#scaled
+linmodels_all=as.data.frame(matrix(0,ncol=5, nrow=46))
+colnames(linmodels_all)=c("name","type","beta","se","pvalue")
+for (i in 14:36){
+  model=as.matrix(summary(lm(scale(as.numeric(testinghyp[,i]))~scale(as.numeric(testinghyp$MAT..deg..C.))))$coefficients)
+  linmodels_all[i-13,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all[i-13, c(1:2)]=c(colnames(testinghyp)[i],"All")
+}
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 14:36){
+  model=as.matrix(summary(lm(scale(as.numeric(testinghyp[PETMones,i]))~scale(as.numeric(testinghyp$MAT..deg..C.)[PETMones])))$coefficients)
+  linmodels_all[i+10,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all[i+10, c(1:2)]=c(colnames(testinghyp)[i],"PETM")
+}
+
+```
+
+
+```{r}
+#library(tidyverse)
+#library(ggforestplot)
+
+# Get subset of example, linear associations, data frame
+df_linear_all <-
+  linmodels_all[c(14:23, 37:46),] %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_linear_all),
+  estimate = beta,
+  logodds = FALSE,
+  colour = type,
+  title = "Associations with MAT",
+  xlab = "Linear model coefficients"
+)
+```
+
+```{r}
+#Calculation of herbivory network metrics from resampled data
+#calculating network level and node-group level network metrics for each of the networks while accounting for resampling
+set.seed(1)
+library(bipartite)
+filenames=filenets_600
+filenames_cl=filenets2_600
+
+#networklevlist=NULL
+#networklevmean=NULL
+#networklevelvar=NULL
+
+library(Rfast)
+
+for (i in 1:length(filenames)){
+  nam=paste(filenames[i])
+  netcurr=read.csv(nam, header=TRUE)
+  colnames(netcurr)[1]="ID"
+  netcurr2=netcurr %>% group_by(ID) %>%  summarise_if(is.numeric, sum, na.rm = TRUE)
+  netmat = data.matrix(netcurr2[,-c(1)], rownames.force = NA)
+  rownames(netmat)= netcurr2$ID
+  
+  minrow=600
+  
+  netpro=NULL
+  allnames=cbind(rownames(netmat),0)
+  colnames(allnames)=c("ID","Nul")
+  allnames=as.data.frame(allnames)
+  
+  for (j in 1:500){
+        q2=sample(nrow(netcurr), minrow, replace=F)
+        datarand=netcurr[q2,]
+        netrand=datarand %>% group_by(ID) %>%  summarise_if(is.numeric, sum, na.rm = TRUE)
+        netrandfinal=left_join(allnames,netrand, by="ID")
+        netrandfinal[is.na(netrandfinal)] <- 0
+        netrandfinal=netrandfinal[,-c(1:2)]
+        netrandfinal=data.matrix(netrandfinal)
+        netpro=rbind(netpro,networklevel(netrandfinal, nrep=20))
+        
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  
+  nam2=strsplit(filenames_cl[i],".csv")[[1]]
+  
+  networklevmean=rbind(networklevmean,c(nam2,colmeans(netpro)))
+  networklevelvar=rbind(networklevelvar,c(nam2,colVars(netpro, std = F)))
+  
+  networklevlist[[i]]=netpro
+ 
+  print(i)
+}
+
+colnames(networklevmean)=c("Web",colnames(netpro))
+colnames(networklevelvar)=c("Web",colnames(netpro))
+
+#for safety
+#networklevelmean_all=as.data.frame(networklevmean)
+#colnames(networklevelmean_all)[1]="site"
+#networklevelvar_all=as.data.frame(networklevelvar)
+```
+
+
+```{r}
+#allold_net=left_join(allold, networklevelmean_all, by="site")
+PETMones=c(5,6,9,11,13,19,30,35)
+#PETMones=c(5,6,9,11,13,30,35)
+summary(lm(as.numeric(allold_net$C.score.HL[PETMones])~as.numeric(allold_net$MAT..deg..C.[PETMones])))
+
+summary(lm(as.numeric(allold_net$C.score.LL)~as.numeric(allold_net$MAT..deg..C.)))
+#nestedness vs NODF
+#connectance #c-score
+#niche-overlap LL ++H2, interaction evenness
+netnums=c(64,71,72,81,83,92,93,96,97,103)
+
+plot(as.numeric(allold_net$C.score.HL[PETMones])~as.numeric(allold_net$MAT..deg..C.[PETMones]), pch=16)
+plot(allold_net$connectance~as.numeric(allold_net$MAT..deg..C.), pch=16)
+
+
+```
+```{r}
+#networks
+netnums=c(64,71,72,81,83,92,93,96,97,103)
+linmodels_allnet=as.data.frame(matrix(0,ncol=5, nrow=20))
+colnames(linmodels_allnet)=c("name","type","beta","se","pvalue")
+for (i in 1:10){
+  model=as.matrix(summary(lm(as.numeric(allold_net[,netnums[i]])~as.numeric(allold_net$MAT..deg..C.)))$coefficients)
+  linmodels_allnet[i,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_allnet[i, c(1:2)]=c(colnames(allold_net)[netnums[i]],"All")
+}
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 1:10){
+  model=as.matrix(summary(lm(as.numeric(allold_net[PETMones,netnums[i]])~as.numeric(allold_net$MAT..deg..C.)[PETMones]))$coefficients)
+  linmodels_allnet[i+10,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_allnet[i+10, c(1:2)]=c(colnames(allold_net)[netnums[i]],"PETM")
+}
+```
+
+
+
+```{r}
+#networks_scaled
+netnums=c(64,71,72,81,83,92,93,96,97,103)
+linmodels_allnet=as.data.frame(matrix(0,ncol=5, nrow=20))
+colnames(linmodels_allnet)=c("name","type","beta","se","pvalue")
+for (i in 1:10){
+  model=as.matrix(summary(lm(scale(as.numeric(allold_net[,netnums[i]]))~scale(as.numeric(allold_net$MAT..deg..C.))))$coefficients)
+  linmodels_allnet[i,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_allnet[i, c(1:2)]=c(colnames(allold_net)[netnums[i]],"All")
+}
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 1:10){
+  model=as.matrix(summary(lm(scale(as.numeric(allold_net[PETMones,netnums[i]]))~scale(as.numeric(allold_net$MAT..deg..C.)[PETMones])))$coefficients)
+  linmodels_allnet[i+10,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_allnet[i+10, c(1:2)]=c(colnames(allold_net)[netnums[i]],"PETM")
+}
+```
+
+```{r}
+library(tidyverse)
+library(ggforestplot)
+
+# Get subset of example, linear associations, data frame
+df_linear_allnet <-
+  linmodels_allnet %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_linear_allnet),
+  estimate = beta,
+  logodds = FALSE,
+  colour = type,
+  title = "Associations with MAT",
+  xlab = "Linear model coefficients"
+)
+```
+
+```{r}
+#without resampling for legumes vs non legumes
+#define storage frames for FFG composition and numbers
+ffg_comp_legumes <- matrix(ncol = 10, nrow=length(filenets_PETM)*2, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_legumes) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_legumes <-matrix(ncol = 11, nrow=length(filenets_PETM)*2, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_legumes) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness")
+
+filenets_PETM = list.files(path="Localities", pattern="*.csv", full.names=T)
+filenets2_PETM = list.files(path="Localities", pattern="*.csv", full.names=F)
+filenets2_PETM_L = list.files(path="Localities/Legume", pattern="*.csv", full.names=T)
+
+filenames_PETM=filenets_PETM
+filenames_L=filenets2_PETM_L
+filenames_cl_PETM=filenets2_PETM
+for (i in 1:length(filenames_PETM)) {
+  nam=paste(filenames_PETM[i])
+  dataall=read.csv(nam, header=T)
+  ldata=na.omit(read.csv(paste(filenames_L[i]), header=T)[,c(1,2)])
+  species   <- as.character(dataall[,1])
+  dataall[,1]=ldata$Legume[match(species, ldata$ID)]
+  dataall[nrow(dataall) + 1,1] = 1
+  dataall[nrow(dataall),2:ncol(dataall)]=0
+  Splitter=split(dataall,dataall$ID)
+  
+  datatable_nonL <- Splitter[[1]][,2:ncol(dataall)]
+  #if (length(Splitter)==2){}
+  datatable_L <- Splitter[[2]][,2:ncol(dataall)]
+  
+  #presence/absence of the ffg on the leaf and count of DTs in each FFG
+  ffg_data_nonL  <- matrix (ncol=max(ffg_def)+1, nrow=nrow(datatable_nonL), data=0)
+  ffg_count_nonL  <- matrix (ncol=max(ffg_def)+1, nrow=1, data=0)
+  DTpres_nonL=as.numeric(colSums(datatable_nonL)>0)
+  
+  ffg_data_L  <- matrix (ncol=max(ffg_def)+1, nrow=nrow(datatable_L), data=0)
+  ffg_count_L  <- matrix (ncol=max(ffg_def)+1, nrow=1, data=0)
+  DTpres_L=as.numeric(colSums(datatable_L)>0)
+  
+  for (j in 1:(max(ffg_def)+1)){
+    ffg_data_nonL[,j]<-as.numeric(as.logical(rowSums(datatable_nonL[,ffg_def==(j-1)])))
+    ffg_count_nonL[,j]<-sum(DTpres_nonL[ffg_def==(j-1)])
+    
+    ffg_data_L[,j]<-as.numeric(as.logical(rowSums(datatable_L[,ffg_def==(j-1)])))
+    ffg_count_L[,j]<-sum(DTpres_L[ffg_def==(j-1)])
+  }
+  
+  ffg_comp_spec_nonL=sum(as.numeric(as.logical(rowSums(datatable_nonL[,c(mask$Spec==T)]))))
+  ffg_count_spec_nonL=sum(DTpres_nonL[c(mask$Spec==T)])
+  
+  ffg_comp_spec_L=sum(as.numeric(as.logical(rowSums(datatable_L[,c(mask$Spec==T)]))))
+  ffg_count_spec_L=sum(DTpres_L[c(mask$Spec==T)])
+  
+  ffg_comp__nonL=c(colSums(ffg_data_nonL), sum(rowSums(ffg_data_nonL)>0), ffg_comp_spec_nonL)/nrow(ffg_data_nonL)*100
+  ffg_comp__L=c(colSums(ffg_data_L), sum(rowSums(ffg_data_L)>0), ffg_comp_spec_L)/nrow(ffg_data_L)*100
+  
+  ffg_comp_legumes[c(2*i-1,2*i),] <- rbind(ffg_comp__nonL,ffg_comp__L)
+  
+  ffg_nums__nonL=c(ffg_count_nonL, sum(ffg_count_nonL), ffg_count_spec_L, as.numeric(length(which(ldata$Legume==0))))
+  ffg_nums__L=c(ffg_count_L, sum(ffg_count_L), ffg_count_spec_L, as.numeric(length(which(ldata$Legume==1))))
+  
+  ffg_nums_legumes[c(2*i-1,2*i),]=rbind(ffg_nums__nonL,ffg_nums__L)
+  
+}
+
+ffg_comp_legumes=as.data.frame(ffg_comp_legumes)
+ffg_comp_legumes$site=rep(as.character(strsplit(filenames_cl_PETM,".csv")), each=2)
+ffg_comp_legumes$legume=rep(c("Non-Fixer", "Fixer"), 8)
+ffg_nums_legumes=as.data.frame(ffg_nums_legumes)
+ffg_nums_legumes$site=rep(as.character(strsplit(filenames_cl_PETM,".csv")), each=2)
+ffg_nums_legumes$legume=rep(c("Non-Fixer","Fixer"), 8)
+```
+
+
+```{r}
+#split ffg_comp_legumes into fixer and non-fixer
+#percent
+
+ffg_comp_legumes2=ffg_comp_legumes[-c(3,4,11,12,15,16),]
+
+Splitter_L_NL=split(ffg_comp_legumes2, ffg_comp_legumes$legume)
+
+ttest_L_NL_comp=as.data.frame(matrix(0,ncol=4, nrow=10))
+
+for (i in 1:10) {
+  TT=t.test(Splitter_L_NL[[1]][,i],Splitter_L_NL[[2]][,i], paired = TRUE)
+  ttest_L_NL_comp[i,2:4]=c(TT$estimate, TT$stderr, TT$p.value)
+  ttest_L_NL_comp[i,1]=colnames(Splitter_L_NL[[1]])[i]
+}
+
+colnames(ttest_L_NL_comp)=c("name","beta","se","pvalue")
+
+```
+
+```{r}
+df_legume <-ttest_L_NL_comp %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_legume),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = FALSE,
+  title = "Associations with Nitrogen fixation",
+  xlab = "T-test estimated difference"
+)
+```
+
+```{r}
+#split ffg_comp_legumes into fixer and non-fixer
+#DTs
+
+ffg_nums_legumes2=ffg_nums_legumes[-c(3,4,11,12,15,16),]
+
+Splitter_L_NL=split(ffg_nums_legumes2, ffg_nums_legumes2$legume)
+
+ttest_L_NL_nums=as.data.frame(matrix(0,ncol=4, nrow=10))
+
+for (i in 1:10) {
+  NL=Splitter_L_NL[[2]][,i]/Splitter_L_NL[[2]]$Plant_richness
+  L=Splitter_L_NL[[1]][,i]/Splitter_L_NL[[1]]$Plant_richness
+  TT=t.test(L,NL, paired = TRUE)
+  ttest_L_NL_nums[i,2:4]=c(TT$estimate, TT$stderr, TT$p.value)
+  ttest_L_NL_nums[i,1]=colnames(Splitter_L_NL[[1]])[i]
+}
+
+colnames(ttest_L_NL_nums)=c("name","beta","se","pvalue")
+
+```
+
+
+```{r}
+df_legume2 <-ttest_L_NL_nums %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_legume2),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = FALSE,
+  title = "Associations with Nitrogen fixation",
+  xlab = "T-test estimated difference per species in each category"
+)
+```
+```{r}
+#split ffg_comp_legumes into fixer and non-fixer
+#pc/DTs*plants
+
+ffg_ext_legumes=((ffg_comp_legumes[-c(3,4,11,12,15,16),c(9,10, 2:8)])*(ffg_nums_legumes[-c(3,4,11,12,15,16),c(rep(11,9))]))/(ffg_nums_legumes[-c(3,4,11,12,15,16),c(9,10,2:8)])
+
+Splitter_L_NL=split(ffg_ext_legumes, ffg_comp_legumes2$legume)
+
+ttest_L_NL_ext=as.data.frame(matrix(0,ncol=4, nrow=9))
+
+for (i in 1:9) {
+  NL=Splitter_L_NL[[2]][,i]
+  L=Splitter_L_NL[[1]][,i]
+  TT=t.test(L,NL, paired = TRUE)
+  ttest_L_NL_ext[i,2:4]=c(TT$estimate, TT$stderr, TT$p.value)
+  ttest_L_NL_ext[i,1]=colnames(Splitter_L_NL[[1]])[i]
+}
+
+colnames(ttest_L_NL_ext)=c("name","beta","se","pvalue")
+
+```
+
+
+```{r}
+df_legume12 <-ttest_L_NL_ext %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_legume12),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = FALSE,
+  title = "Associations with Nitrogen fixation",
+  xlab = "T-test estimated difference in each category"
+)
+```
+
+```{r}
+#####Moisture - Hanna Basin
+
+linmodels_all_MAP=as.data.frame(matrix(0,ncol=5, nrow=46))
+colnames(linmodels_all_MAP)=c("name","type","beta","se","pvalue")
+for (i in 14:36){
+  model=as.matrix(summary(lm(scale(as.numeric(testinghyp[,i]))~scale(as.numeric(testinghyp$MAP..mm.yr.))))$coefficients)
+  linmodels_all_MAP[i-13,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all_MAP[i-13, c(1:2)]=c(colnames(testinghyp)[i],"All")
+}
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 14:36){
+  model=as.matrix(summary(lm(scale(as.numeric(testinghyp[PETMones,i]))~scale(as.numeric(testinghyp$MAP..mm.yr.)[PETMones])))$coefficients)
+  linmodels_all_MAP[i+10,c(3:5)]=model[2,c(1,2,4)]
+  linmodels_all_MAP[i+10, c(1:2)]=c(colnames(testinghyp)[i],"PETM")
+}
+
+#library(tidyverse)
+#library(ggforestplot)
+
+# Get subset of example, linear associations, data frame
+df_linear_all_MAP <-
+  linmodels_all_MAP %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_linear_all_MAP),
+  estimate = beta,
+  logodds = FALSE,
+  colour = type,
+  title = "Associations with MAP",
+  xlab = "Linear model coefficients"
+)
+
+
+```
+
+```{r}
+#redo hanna with 300
+library(Rfast)
+#with resampling for percentage and richness
+
+filenames=list.files(path="Localities/PETM", pattern="*.csv", full.names=TRUE)
+filenames_cl=list.files(path="Localities/PETM", pattern="*.csv", full.names=FALSE)
+
+#define storage frames for FFG composition and numbers
+ffg_comp_mean_dry <- matrix(ncol = 10, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_mean_dry) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+#actually sd
+ffg_comp_var_dry <- matrix(ncol = 10, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_var_dry) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_mean_dry <-matrix(ncol = 13, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_mean_dry) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+ffg_nums_var_dry <-matrix(ncol = 13, nrow=length(filenames), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_var_dry) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+
+
+for (i in 1:length(filenames)) {
+  
+  nam=paste(filenames[i])
+  dataall=read.csv(nam, header=TRUE)
+  datatable_all <- dataall[,2:ncol(dataall)]
+  species   <- as.factor(dataall[,1])
+  
+  minrow=290
+  samplings=500
+  
+  ffg_comp_store <- matrix(ncol = 10, nrow=samplings, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG for each site with samplings
+  colnames(ffg_comp_store) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+  ffg_nums_store <-matrix(ncol = 13, nrow=samplings, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG for each site with samplings
+colnames(ffg_nums_store) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+  
+  for (j in 1:samplings){
+        nums=sample(nrow(datatable_all), minrow, replace=FALSE)
+        datatable=datatable_all[nums,]
+        datatable_ID=dataall[nums,]
+        #presence/absence of the ffg on the leaf and count of DTs in each FFG
+        ffg_data  <- matrix (ncol=max(ffg_def)+1, nrow=nrow(datatable), data=0)
+        ffg_count  <- matrix (ncol=max(ffg_def)+1, nrow=1, data=0)
+        DTpres=as.numeric(colSums(datatable)>0)
+  
+        for (k in 1:(max(ffg_def)+1)){
+          ffg_data[,k]<-as.numeric(as.logical(rowSums(datatable[,ffg_def==(k-1)])))
+          ffg_count[,k]<-sum(DTpres[ffg_def==(k-1)])
+        }
+  
+        ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(mask$Spec==TRUE)]))))
+        ffg_count_spec=sum(DTpres[c(mask$Spec==TRUE)])
+  
+        ##plants
+        shannon <- diversity(table(datatable_ID$ID), index = "shannon")
+        PJ <- (shannon)/log(length(table(datatable_ID$ID)))
+  
+        ffg_comp_store[j,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+        ffg_nums_store[j,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(datatable_ID$ID))), shannon, PJ)
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  ffg_comp_mean_dry[i,] <- colMeans(as.data.frame(ffg_comp_store))
+  ffg_comp_var_dry[i,]=sapply(as.data.frame(ffg_comp_store), sd)
+  ffg_nums_mean_dry[i,]=colMeans(as.data.frame(ffg_nums_store))
+  ffg_nums_var_dry[i,]=sapply(as.data.frame(ffg_nums_store), sd)
+  
+  
+  print(i)
+}
+
+ffg_comp_mean_dry=as.data.frame(ffg_comp_mean_dry)
+ffg_comp_mean_dry$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_comp_var_dry=as.data.frame(ffg_comp_var_dry)
+ffg_comp_var_dry$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_nums_mean_dry=as.data.frame(ffg_nums_mean_dry)
+ffg_nums_mean_dry$site=as.character(strsplit(filenames_cl,".csv"))
+ffg_nums_var_dry=as.data.frame(ffg_nums_var_dry)
+ffg_nums_var_dry$site=as.character(strsplit(filenames_cl,".csv"))
+
+ffg_nums_mean_dry$basin="Big Horn"
+ffg_nums_mean_dry$basin[c(5,6)]="Hanna"
+
+ffg_comp_mean_dry$basin="Big Horn"
+ffg_comp_mean_dry$basin[c(5,6)]="Hanna"
+
+
+##just for safety - saving as another dataframe
+#DTrichness=ffg_nums_mean
+#DTpc=ffg_comp_mean
+```
+
+```{r}
+t.test(ffg_nums_mean_dry$DTs_all[which(ffg_nums_mean_dry$basin=="Big Horn")], ffg_nums_mean_dry$DTs_all[which(ffg_nums_mean_dry$basin=="Hanna")])
+```
+
+```{r}
+ttest_dry_nums=as.data.frame(matrix(0,ncol=4, nrow=11))
+
+for (i in 1:11) {
+  TT=t.test(ffg_nums_mean_dry[,i][which(ffg_nums_mean_dry$basin=="Big Horn")], ffg_nums_mean_dry[,i][which(ffg_nums_mean_dry$basin=="Hanna")], paired = FALSE)
+  ttest_dry_nums[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_dry_nums[i,1]=colnames(ffg_nums_mean_dry)[i]
+}
+
+colnames(ttest_dry_nums)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# Get subset of example, linear associations, data frame
+df_dry <-
+  ttest_dry_nums %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_dry),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Big Horn and Hanna Basins",
+  xlab = "T-test mean differences between the two Basins"
+)
+
+```
+
+```{r}
+
+ttest_dry_comp=as.data.frame(matrix(0,ncol=4, nrow=10))
+
+for (i in 1:10) {
+  TT=t.test(ffg_comp_mean_dry[,i][which(ffg_comp_mean_dry$basin=="Big Horn")], ffg_comp_mean_dry[,i][which(ffg_comp_mean_dry$basin=="Hanna")], paired = FALSE)
+  ttest_dry_comp[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_dry_comp[i,1]=colnames(ffg_comp_mean_dry)[i]
+}
+
+colnames(ttest_dry_comp)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# Get subset of example, linear associations, data frame
+df_dry_comp <-
+  ttest_dry_comp %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_dry_comp),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Big Horn and Hanna Basins",
+  xlab = "T-test mean differences between the two Basins"
+)
+
+```
+```{r}
+##modern stuff
+#read files
+#HF
+modern_HF=na.omit(read.csv("Localities/modern/abundance_data_HFmatrix.csv"))
+rownames(modern_HF)=NULL
+modern_HF$quarry=as.integer(modern_HF$quarry) #making sites form the quarries within
+HF_all=split(modern_HF,modern_HF$quarry)
+
+#SERC
+modern_SERC=na.omit(read.csv("Localities/modern/abundance_data_SERCmatrix.csv"))
+rownames(modern_SERC)=NULL
+modern_SERC$quarry=as.integer(modern_SERC$quarry) #making sites form the quarries within
+SERC_all=split(modern_SERC,modern_SERC$quarry)
+
+
+#LS
+modern_LS=na.omit(read.csv("Localities/modern/abundance_data_LSmatrix.csv"))
+rownames(modern_LS)=NULL
+modern_LS$quarry=as.integer(modern_LS$quarry) #making sites form the quarries within
+LS_all=split(modern_LS,modern_LS$quarry)
+
+#read ffgs and mask
+HF_mask=as.data.frame(read_csv("Localities/modern/masks/HFmask.csv"))
+HF_ffg_def <- read.csv("Localities/modern/masks/HFffgdef.csv", header=TRUE)$x
+
+SERC_mask=as.data.frame(read_csv("Localities/modern/masks/SERCmask.csv"))
+SERC_ffg_def <- read.csv("Localities/modern/masks/SERCffgdef.csv", header=TRUE)$x
+
+LS_mask=as.data.frame(read_csv("Localities/modern/masks/LSmask.csv"))
+LS_ffg_def <- read.csv("Localities/modern/masks/LSffgdef.csv", header=TRUE)$x
+
+```
+
+```{r}
+#library(Rfast)
+#with resampling for percentage and richness for modern
+
+###HF
+
+#define storage frames for FFG composition and numbers
+ffg_comp_mean_HF <- matrix(ncol = 10, nrow=length(HF_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_mean_HF) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+#actually sd
+ffg_comp_var_HF <- matrix(ncol = 10, nrow=length(HF_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_var_HF) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_mean_HF <-matrix(ncol = 13, nrow=length(HF_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_mean_HF) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+ffg_nums_var_HF <-matrix(ncol = 13, nrow=length(HF_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_var_HF) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+namese=NULL
+
+for (i in 1:length(HF_all)) {
+  dataall=HF_all[[i]]
+  datatable_all <- dataall[,4:ncol(dataall)]
+  species   <- as.factor(dataall[,3])
+  
+  minrow=600
+  samplings=500
+  
+  ffg_comp_store <- matrix(ncol = 10, nrow=samplings, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG for each site with samplings
+  colnames(ffg_comp_store) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+  ffg_nums_store <-matrix(ncol = 13, nrow=samplings, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG for each site with samplings
+colnames(ffg_nums_store) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+  
+  for (j in 1:samplings){
+        nums=sample(nrow(datatable_all), minrow, replace=F)
+        datatable=datatable_all[nums,]
+        datatable_ID=dataall[nums,]
+        #presence/absence of the ffg on the leaf and count of DTs in each FFG
+        ffg_data  <- matrix (ncol=max(HF_ffg_def)+1, nrow=nrow(datatable), data=0)
+        ffg_count  <- matrix (ncol=max(HF_ffg_def)+1, nrow=1, data=0)
+        DTpres=as.numeric(colSums(datatable)>0)
+  
+        for (k in 1:(max(ffg_def)+1)){
+          ffg_data[,k]<-as.numeric(as.logical(rowSums(datatable[,HF_ffg_def==(k-1)])))
+          ffg_count[,k]<-sum(DTpres[HF_ffg_def==(k-1)])
+        }
+  
+        ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(HF_mask$Spec==TRUE)]))))
+        ffg_count_spec=sum(DTpres[c(HF_mask$Spec==TRUE)])
+  
+        ##plants
+        shannon <- diversity(table(datatable_ID$species), index = "shannon")
+        PJ <- (shannon)/log(length(table(datatable_ID$species)))
+  
+        ffg_comp_store[j,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+        ffg_nums_store[j,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(datatable_ID$species))), shannon, PJ)
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  ffg_comp_mean_HF[i,] <- colMeans(as.data.frame(ffg_comp_store))
+  ffg_comp_var_HF[i,]=sapply(as.data.frame(ffg_comp_store), sd)
+  ffg_nums_mean_HF[i,]=colMeans(as.data.frame(ffg_nums_store))
+  ffg_nums_var_HF[i,]=sapply(as.data.frame(ffg_nums_store), sd)
+  
+  namese=c(namese, paste(dataall$site[1],dataall$quarry[1]))
+  print(i)
+}
+
+ffg_comp_mean_HF=as.data.frame(ffg_comp_mean_HF)
+ffg_comp_mean_HF$site=as.character(namese)
+ffg_comp_var_HF=as.data.frame(ffg_comp_var_HF)
+ffg_comp_var_HF$site=as.character(namese)
+ffg_nums_mean_HF=as.data.frame(ffg_nums_mean_HF)
+ffg_nums_mean_HF$site=as.character(namese)
+ffg_nums_var_HF=as.data.frame(ffg_nums_var_HF)
+ffg_nums_var_HF$site=as.character(namese)
+```
+
+```{r}
+#library(Rfast)
+#with resampling for percentage and richness for modern
+
+###SERC
+
+#define storage frames for FFG composition and numbers
+ffg_comp_mean_SERC <- matrix(ncol = 10, nrow=length(SERC_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_mean_SERC) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+#actually sd
+ffg_comp_var_SERC <- matrix(ncol = 10, nrow=length(SERC_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_var_SERC) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_mean_SERC <-matrix(ncol = 13, nrow=length(SERC_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_mean_SERC) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+ffg_nums_var_SERC <-matrix(ncol = 13, nrow=length(SERC_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_var_SERC) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+namese=NULL
+
+for (i in 1:length(SERC_all)) {
+  dataall=SERC_all[[i]]
+  datatable_all <- dataall[,4:ncol(dataall)]
+  species   <- as.factor(dataall[,3])
+  
+  minrow=600
+  samplings=500
+  
+  ffg_comp_store <- matrix(ncol = 10, nrow=samplings, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG for each site with samplings
+  colnames(ffg_comp_store) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+  ffg_nums_store <-matrix(ncol = 13, nrow=samplings, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG for each site with samplings
+colnames(ffg_nums_store) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+  
+  for (j in 1:samplings){
+        nums=sample(nrow(datatable_all), minrow, replace=F)
+        datatable=datatable_all[nums,]
+        datatable_ID=dataall[nums,]
+        #presence/absence of the ffg on the leaf and count of DTs in each FFG
+        ffg_data  <- matrix (ncol=max(SERC_ffg_def)+1, nrow=nrow(datatable), data=0)
+        ffg_count  <- matrix (ncol=max(SERC_ffg_def)+1, nrow=1, data=0)
+        DTpres=as.numeric(colSums(datatable)>0)
+  
+        for (k in 1:(max(ffg_def)+1)){
+          ffg_data[,k]<-as.numeric(as.logical(rowSums(datatable[,SERC_ffg_def==(k-1)])))
+          ffg_count[,k]<-sum(DTpres[SERC_ffg_def==(k-1)])
+        }
+  
+        ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(SERC_mask$Spec==TRUE)]))))
+        ffg_count_spec=sum(DTpres[c(SERC_mask$Spec==TRUE)])
+  
+        ##plants
+        shannon <- diversity(table(datatable_ID$species), index = "shannon")
+        PJ <- (shannon)/log(length(table(datatable_ID$species)))
+  
+        ffg_comp_store[j,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+        ffg_nums_store[j,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(datatable_ID$species))), shannon, PJ)
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  ffg_comp_mean_SERC[i,] <- colMeans(as.data.frame(ffg_comp_store))
+  ffg_comp_var_SERC[i,]=sapply(as.data.frame(ffg_comp_store), sd)
+  ffg_nums_mean_SERC[i,]=colMeans(as.data.frame(ffg_nums_store))
+  ffg_nums_var_SERC[i,]=sapply(as.data.frame(ffg_nums_store), sd)
+  
+  namese=c(namese, paste(dataall$site[1],dataall$quarry[1]))
+  print(i)
+}
+
+ffg_comp_mean_SERC=as.data.frame(ffg_comp_mean_SERC)
+ffg_comp_mean_SERC$site=as.character(namese)
+ffg_comp_var_SERC=as.data.frame(ffg_comp_var_SERC)
+ffg_comp_var_SERC$site=as.character(namese)
+ffg_nums_mean_SERC=as.data.frame(ffg_nums_mean_SERC)
+ffg_nums_mean_SERC$site=as.character(namese)
+ffg_nums_var_SERC=as.data.frame(ffg_nums_var_SERC)
+ffg_nums_var_SERC$site=as.character(namese)
+
+```
+
+```{r}
+#library(Rfast)
+#with resampling for percentage and richness for modern
+
+###LS
+
+#define storage frames for FFG composition and numbers
+ffg_comp_mean_LS <- matrix(ncol = 10, nrow=length(LS_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_mean_LS) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+#actually sd
+ffg_comp_var_LS <- matrix(ncol = 10, nrow=length(LS_all), 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG
+colnames(ffg_comp_var_LS) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+
+ffg_nums_mean_LS <-matrix(ncol = 13, nrow=length(LS_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_mean_LS) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+ffg_nums_var_LS <-matrix(ncol = 13, nrow=length(LS_all), 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG
+colnames(ffg_nums_var_LS) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+
+namese=NULL
+
+for (i in 1:length(LS_all)) {
+  dataall=LS_all[[i]]
+  datatable_all <- dataall[,4:ncol(dataall)]
+  species   <- as.factor(dataall[,3])
+  
+  minrow=600
+  samplings=500
+  
+  ffg_comp_store <- matrix(ncol = 10, nrow=samplings, 0) #CONSTRUCT A MATRIX OF % OF LEAVES WITH EACH FFG for each site with samplings
+  colnames(ffg_comp_store) <- c("pc_Oviposition", "pc_Skeletonization", "pc_Surface feeding", "pc_Gall", "pc_Hole Feeding", "pc_Mining", "pc_Margin Feeding", "pc_Piercing and Sucking", "pc_DamagedLeaves", "pc_Specialized")
+  ffg_nums_store <-matrix(ncol = 13, nrow=samplings, 0) #CONSTRUCT A MATRIX OF number of DTs in each FFG for each site with samplings
+colnames(ffg_nums_store) <- c("DTs_Oviposition", "DTs_Skeletonization", "DTs_Surface feeding", "DTs_Gall", "DTs_Hole Feeding", "DTs_Mining", "DTs_Margin Feeding", "DTs_Piercing and Sucking", "DTs_all", "DTs_Specialized", "Plant_richness", "Plant_Shannon", "Plant_J")
+  
+  for (j in 1:samplings){
+        nums=sample(nrow(datatable_all), minrow, replace=F)
+        datatable=datatable_all[nums,]
+        datatable_ID=dataall[nums,]
+        #presence/absence of the ffg on the leaf and count of DTs in each FFG
+        ffg_data  <- matrix (ncol=max(LS_ffg_def)+1, nrow=nrow(datatable), data=0)
+        ffg_count  <- matrix (ncol=max(LS_ffg_def)+1, nrow=1, data=0)
+        DTpres=as.numeric(colSums(datatable)>0)
+  
+        for (k in 1:(max(ffg_def)+1)){
+          ffg_data[,k]<-as.numeric(as.logical(rowSums(datatable[,LS_ffg_def==(k-1)])))
+          ffg_count[,k]<-sum(DTpres[LS_ffg_def==(k-1)])
+        }
+  
+        ffg_comp_spec=sum(as.numeric(as.logical(rowSums(datatable[,c(LS_mask$Spec==TRUE)]))))
+        ffg_count_spec=sum(DTpres[c(LS_mask$Spec==TRUE)])
+  
+        ##plants
+        shannon <- diversity(table(datatable_ID$species), index = "shannon")
+        PJ <- (shannon)/log(length(table(datatable_ID$species)))
+  
+        ffg_comp_store[j,] <- c(colSums(ffg_data), sum(rowSums(ffg_data)>0), ffg_comp_spec)/nrow(ffg_data)*100
+        ffg_nums_store[j,]=c(ffg_count, sum(ffg_count), ffg_count_spec, as.numeric(length(table(datatable_ID$species))), shannon, PJ)
+        if (j %% 50 == 0){print(paste("Sequence", " ", j))}
+  }
+  
+  
+  ffg_comp_mean_LS[i,] <- colMeans(as.data.frame(ffg_comp_store))
+  ffg_comp_var_LS[i,]=sapply(as.data.frame(ffg_comp_store), sd)
+  ffg_nums_mean_LS[i,]=colMeans(as.data.frame(ffg_nums_store))
+  ffg_nums_var_LS[i,]=sapply(as.data.frame(ffg_nums_store), sd)
+  
+  namese=c(namese, paste(dataall$site[1],dataall$quarry[1]))
+  print(i)
+}
+
+ffg_comp_mean_LS=as.data.frame(ffg_comp_mean_LS)
+ffg_comp_mean_LS$site=as.character(namese)
+ffg_comp_var_LS=as.data.frame(ffg_comp_var_LS)
+ffg_comp_var_LS$site=as.character(namese)
+ffg_nums_mean_LS=as.data.frame(ffg_nums_mean_LS)
+ffg_nums_mean_LS$site=as.character(namese)
+ffg_nums_var_LS=as.data.frame(ffg_nums_var_LS)
+ffg_nums_var_LS$site=as.character(namese)
+
+```
+
+```{r}
+ffg_comp_mean_modern_all=rbind(ffg_comp_mean_HF, ffg_comp_mean_SERC, ffg_comp_mean_LS)
+ffg_comp_mean_modern_all$reg=c(rep("Temperate", 6), rep("Tropical", 3))
+ffg_nums_mean_modern_all=rbind(ffg_nums_mean_HF, ffg_nums_mean_SERC, ffg_nums_mean_LS)
+ffg_nums_mean_modern_all$reg=c(rep("Temperate", 6), rep("Tropical", 3))
+```
+
+```{r}
+#for composition between modern vs PETM
+ttest_modern_old_comp=as.data.frame(matrix(0,ncol=4, nrow=10))
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 1:10) {
+  TT=t.test(ffg_comp_mean_modern_all[,i], as.numeric(testinghyp[PETMones,26+i]), paired = FALSE)
+  ttest_modern_old_comp[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_modern_old_comp[i,1]=colnames(ffg_comp_mean_modern_all)[i]
+}
+
+colnames(ttest_modern_old_comp)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# modern vs PETM
+
+df_comp_PETM_modern<-
+  ttest_modern_old_comp %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_comp_PETM_modern),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Modern and PETM sites",
+  xlab = "T-test mean differences between the modern and PETM sites"
+)
+
+```
+
+
+```{r}
+#for DT richness between modern vs PETM
+ttest_modern_old_nums=as.data.frame(matrix(0,ncol=4, nrow=13))
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 1:13) {
+  TT=t.test(ffg_nums_mean_modern_all[,i], as.numeric(testinghyp[PETMones,13+i]), paired = FALSE)
+  ttest_modern_old_nums[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_modern_old_nums[i,1]=colnames(ffg_nums_mean_modern_all)[i]
+}
+
+colnames(ttest_modern_old_nums)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# modern vs PETM
+
+df_nums_PETM_modern<-
+  ttest_modern_old_nums %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_nums_PETM_modern),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Modern and PETM sites",
+  xlab = "T-test mean differences between the modern and PETM sites"
+)
+
+```
+
+```{r}
+#for DT richness between modern temp vs tropical
+ttest_modern_temptrop_nums=as.data.frame(matrix(0,ncol=4, nrow=13))
+
+PETMones=c(5,6,9,11,13,19,30,35)
+
+for (i in 1:13) {
+  TT=t.test(ffg_nums_mean_modern_all[which(ffg_nums_mean_modern_all$reg=="Tropical"),i], ffg_nums_mean_modern_all[which(ffg_nums_mean_modern_all$reg=="Temperate"),i], paired = FALSE)
+  ttest_modern_temptrop_nums[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_modern_temptrop_nums[i,1]=colnames(ffg_nums_mean_modern_all)[i]
+}
+
+colnames(ttest_modern_temptrop_nums)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# modern vs PETM
+
+df_nums_temptrop_modern<-
+  ttest_modern_temptrop_nums %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_nums_temptrop_modern),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Tropical and Temperate sites",
+  xlab = "T-test mean differences between Tropical and Temperate sites"
+)
+
+```
+
+```{r}
+#for DT richness between modern temp vs tropical
+ttest_modern_temptrop_comp=as.data.frame(matrix(0,ncol=4, nrow=10))
+
+
+for (i in 1:10) {
+  #TT=t.test(ffg_comp_mean_modern_all[which(ffg_comp_mean_modern_all$reg=="Tropical"),i], ffg_comp_mean_modern_all[which(ffg_comp_mean_modern_all$reg=="Temperate"),i], paired = FALSE)
+   TT=t.test(ffg_comp_mean_modern_all[which(ffg_comp_mean_modern_all$reg=="Tropical"),i], ffg_comp_mean_modern_all[which(ffg_comp_mean_modern_all$reg=="Temperate"),i], paired = FALSE)
+  ttest_modern_temptrop_comp[i,2:4]=c(TT$estimate[1]-TT$estimate[2], TT$stderr, TT$p.value)
+  ttest_modern_temptrop_comp[i,1]=colnames(ffg_comp_mean_modern_all)[i]
+}
+
+colnames(ttest_modern_temptrop_comp)=c("name","beta","se","pvalue")
+```
+
+```{r}
+# modern vs PETM
+
+df_comp_temptrop_modern<-
+  ttest_modern_temptrop_comp %>%dplyr::arrange(name)%>%dplyr::filter(dplyr::row_number() <= 46)
+
+
+# Forestplot
+forestplot(
+  df = as_tibble(df_comp_temptrop_modern),
+  estimate = beta,
+  logodds = FALSE,
+  #colour = type,
+  title = "Differences Between Tropical and Temperate sites",
+  xlab = "T-test mean differences between Tropical and Temperate sites"
+)
+
+```
+
